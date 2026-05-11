@@ -24,26 +24,23 @@ Removed:
 - `web/`: simulation webview + manager frontend
 - `tools/`: utility scripts
 
-## Environment Setup
+## Environment Setup (uv)
 
 ```bash
 cd ./mujoco-pi-plus-sim
-conda create -n mujoco312 python=3.12 -y
-conda activate mujoco312
-pip install -r requirements.txt
+uv sync
 ```
 
 Quick dependency check:
 
 ```bash
-python -c "import mujoco, torch, zmq, flask, fastapi, uvicorn; print('ok')"
+uv run python -c "import mujoco, torch, zmq, flask, fastapi, uvicorn; print('ok')"
 ```
 
 ## Run Simulation (pi_plus)
 
 ```bash
-cd ./mujoco-pi-plus-sim
-python sim2sim_runner.py --robot-type pi_plus --team-size 3
+uv run mos-sim-run --robot-type pi_plus --team-size 3
 ```
 
 Notes:
@@ -54,11 +51,8 @@ Notes:
 
 ## Run Simulation Manager
 
-Start manager:
-
 ```bash
-cd ./mujoco-pi-plus-sim
-python sim_manager.py --host 0.0.0.0 --port 8000
+uv run mos-sim-manager --host 0.0.0.0 --port 8000
 ```
 
 Manager pages:
@@ -69,8 +63,7 @@ Manager pages:
 ## Optional: Run Manager with Uvicorn
 
 ```bash
-cd ./mujoco-pi-plus-sim
-uvicorn app.sim_manager:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.sim_manager:app --host 0.0.0.0 --port 8000
 ```
 
 ## Common Runtime Options
@@ -105,27 +98,6 @@ Single command request:
 - This repo is intentionally narrowed to `pi_plus` pipeline maintenance and deployment.
 - If you need multi-backend simulation (Isaac/Genesis/bridge), use the original monorepo instead.
 
-## Use With uv
-
-Install dependencies and create lockfile:
-
-```bash
-cd ./mujoco-pi-plus-sim
-uv sync
-```
-
-Run simulation:
-
-```bash
-uv run mos-sim-run --robot-type pi_plus --team-size 3
-```
-
-Run manager:
-
-```bash
-uv run mos-sim-manager --host 0.0.0.0 --port 8000
-```
-
 ## Notice
 
 This repository is extracted from the original `mos-sim` project and keeps the original MOS-Sim contributor attribution in source headers.
@@ -136,6 +108,5 @@ Deduplicated by email:
 
 1. Shibo Xia (`sbxia`) `<xsb25@mails.tsinghua.edu.cn>`
 2. 罗绍殷 (`luo-sy24`) `<luo-sy24@mails.tsinghua.edu.cn>`
-3. wangju `<j-wang24@mails.tsinghua.edu.cn>`
-4. infrontlight `<1051330335@qq.com>`
-5. wegg111 `<1047950878@qq.com>`
+3. wangju (aka `infrontlight`) `<j-wang24@mails.tsinghua.edu.cn>`, `<1051330335@qq.com>`
+4. wegg111 `<1047950878@qq.com>`
