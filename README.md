@@ -5,22 +5,22 @@ This repository is an extracted standalone simulation pipeline for **MuJoCo + `p
 ## Scope
 
 Included:
-- MuJoCo multi-robot simulation pipeline (`pi_plus`)
-- Simulation runner (`mujoco_pi_plus_sim.runner`)
+- MuJoCo multi-robot simulation (`pi_plus`)
+- Runtime runner (`mujoco_pi_plus_sim.runner`)
 - Simulation manager API/UI (`mujoco_pi_plus_sim.sim_manager`)
-- Web visualization and control pages (`web/`)
+- Web visualization pages (`web/`)
+- External gait/control tools (`tools/`)
 
 Removed:
-- Isaac-related vendored compatibility library (`vendor/sim2simlib`)
-- All `k1` robot assets and policies
-- Monorepo forwarding dependency to `simulation.labbridge`
+- Isaac compatibility library and bridge dependencies
+- All `k1` assets/policies
 
 ## Repository Layout
 
 - `src/mujoco_pi_plus_sim/`: runtime config, simulator core, manager backend
-- `assets/`: `pi_plus` robot, environment, and `pi_plus` policy
+- `assets/`: `pi_plus` robot, environment, and policy
 - `web/`: simulation webview + manager frontend
-- `tools/`: utility scripts
+- `tools/`: gait/control helper scripts
 
 ## Environment Setup (uv)
 
@@ -35,31 +35,82 @@ Quick dependency check:
 uv run python -c "import mujoco, torch, zmq, flask, fastapi, uvicorn; print('ok')"
 ```
 
-## Run Simulation (pi_plus)
+## Runtime Model (Current)
 
-```bash
-uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 3
-```
+Current control contract is:
+- External control interface: **50Hz** (`dt=0.02`)
+- Internal physics integration: **2ms** step (`sim_dt=0.002`)
+- Internal substeps per external control tick: **10** (`control_decimation=10`)
+- Actuation input to MuJoCo: **joint-based** (`joint_actions` / `joint_targets`)
 
-Notes:
-- `--robot-type` is `pi_plus` only in this repo.
-- `--team-size` range: `0..7`
-- default webview: `http://localhost:5811`
-- default ZMQ REP endpoint: `tcp://*:5555`
+`cmd_vel` is **not** sent to MuJoCo as direct actuation. It is used by `gait_node` to condition policy output.
 
-Run as pure simulation server for external gait:
+## Run Simulation
 
 ```bash
 uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 1 --port 5555
 ```
 
-On macOS, add GL override:
+On macOS:
 
 ```bash
 uv run mos-sim-run --control-mode joint_target --mujoco-gl cgl --robot-type pi_plus --team-size 1 --port 5555
 ```
 
-## Run Simulation Manager
+## Run External Gait Pipeline (No Mux)
+
+1. Start simulation:
+
+```bash
+uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 1 --port 5555
+```
+
+2. Start runtime velocity publisher (optional but recommended):
+
+```bash
+uv run python tools/cmd_vel_node.py --bind tcp://127.0.0.1:6003 --vx 1.0 --vy 0.0 --wz 0.0 --rate 20
+```
+
+3. Start gait node (single writer to sim):
+
+```bash
+uv run python tools/gait_node.py \
+  --sim-host 127.0.0.1 --sim-port 5555 \
+  --sensor-bind tcp://127.0.0.1:6001 \
+  --intent-bind tcp://127.0.0.1:6002 \
+  --cmd-connect tcp://127.0.0.1:6003 \
+  --rids 0,7 \
+  --policy-device cpu \
+  --dt 0.02
+```
+
+Notes:
+- `gait_node.py` directly communicates with MuJoCo ZMQ (no `control_mux.py`).
+- `--dt 0.02` keeps external policy/control at 50Hz.
+- MuJoCo internally applies 10 physics substeps per control message.
+
+## ZMQ Protocol (Sim)
+
+Request (external controller -> sim):
+
+```json
+{
+  "timestamp": 1715420000.123,
+  "source": "gait_node",
+  "commands": [{"id": 0, "cmd": [1.0, 0.0, 0.0]}],
+  "joint_actions": [{"id": 0, "a": [0.0, 0.0, 0.0]}]
+}
+```
+
+Response (sim -> external controller):
+- `state`: world summary
+- `sensors`: per-robot sensors including
+  - `obs`
+  - `joint_pos`, `joint_vel`, `joint_pos_target`
+  - `base_pos`, `base_quat_wxyz`
+- `control_mode`, `sim_timestamp`, `step_latency`, `ack_timestamp`
+
+## Simulation Manager
 
 ```bash
 uv run mos-sim-manager --host 0.0.0.0 --port 8000
@@ -70,80 +121,9 @@ Manager pages:
 - API docs page: `http://127.0.0.1:8000/manager/docs`
 - Swagger: `http://127.0.0.1:8000/docs`
 
-## Optional: Run Manager with Uvicorn
-
-```bash
-uv run uvicorn mujoco_pi_plus_sim.sim_manager:app --host 0.0.0.0 --port 8000
-```
-
-## Common Runtime Options
-
-Simulation:
-- `--team-size <0..7>`
-- `--port <zmq_port>`
-- `--webview-port <port>`
-- `--web-fps <int>`
-- `--web-width <int>`
-- `--web-height <int>`
-- `--policy-device cpu|gpu`
-- `--control-mode joint_target|policy`
-- `--mujoco-gl egl|glfw|osmesa|cgl`
-- `--use-referee` / `--no-use-referee`
-
-Manager start request supports:
-- `team_size`
-- `zmq_port`
-- `webview_port`
-- `policy_device`
-- `control_mode`
-- `use_referee`
-
-## ZMQ Protocol
-
-Joint-target request:
-
-```json
-{
-  "timestamp": 1715420000.123,
-  "source": "gait",
-  "joint_targets": [
-    {"id": 0, "q": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
-  ]
-}
-```
-
-Single-robot shorthand:
-
-```json
-{"id":0, "joint_pos":[...], "timestamp":1715420000.123, "source":"gait"}
-```
-
-External policy-action request (used by `tools/external_gait_controller.py`):
-
-```json
-{"timestamp":1715420000.123, "source":"external_gait", "joint_actions":[{"id":0, "a":[...]}]}
-```
-
-Response includes:
-- `state`: world state summary (robots/ball)
-- `sensors`: per-robot sensor payload
-  - `obs` (policy observation vector)
-  - `joint_pos`, `joint_vel`, `joint_pos_target`
-  - `base_pos`, `base_quat_wxyz`
-- `control_mode`, `sim_timestamp`, `step_latency`, `ack_timestamp`
-
-Actuation note:
-- MuJoCo actuation input is joint-based only (`joint_targets`, `joint_pos`, `joint_actions`).
-- `cmd_vel` control is not used as an actuation interface in this hardware-style setup.
-
-## Notes
-
-- This repo is intentionally narrowed to `pi_plus` pipeline maintenance and deployment.
-- If you need multi-backend simulation (Isaac/Genesis/bridge), use the original monorepo instead.
-
 ## Notice
 
-This repository is extracted from the original `mos-sim` project and keeps the original MOS-Sim contributor attribution in source headers.
+This repository is extracted from the original `mos-sim` project and keeps MOS-Sim contributor attribution in source headers.
 
 ## Contributors (from mos-sim commit history)
 
@@ -153,20 +133,3 @@ Deduplicated by email:
 2. 罗绍殷 (`luo-sy24`) `<luo-sy24@mails.tsinghua.edu.cn>`
 3. wangju (aka `infrontlight`) `<j-wang24@mails.tsinghua.edu.cn>`, `<1051330335@qq.com>`
 4. wegg111 `<1047950878@qq.com>`
-
-
-## External Gait Controller
-
-Run simulation in hardware mode (joint_target):
-
-```bash
-uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 1 --port 5555
-```
-
-Run external gait process in another terminal:
-
-```bash
-uv run python tools/external_gait_controller.py --host 127.0.0.1 --port 5555
-```
-
-`tools/external_gait_controller.py` reads `sensors.robots[*].obs`, runs policy externally, and sends `joint_actions` back via ZMQ.

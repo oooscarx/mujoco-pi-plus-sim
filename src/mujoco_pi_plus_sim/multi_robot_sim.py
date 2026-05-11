@@ -2084,6 +2084,21 @@ class MultiRobotMujocoSim:
                 if got_msg and msg is not None:
                     client_ts = msg.get("timestamp", 0)
                     msg_source = msg.get("source", "unknown")
+                    if "commands" in msg and isinstance(msg["commands"], list):
+                        for item in msg["commands"]:
+                            if not isinstance(item, dict):
+                                continue
+                            c = item.get("cmd", [0.0, 0.0, 0.0])
+                            rid = int(item.get("id", 0))
+                            ts = item.get("timestamp", client_ts)
+                            src = item.get("source", msg_source)
+                            if isinstance(c, (list, tuple)) and len(c) >= 3:
+                                self.set_command(float(c[0]), float(c[1]), float(c[2]), robot_id=rid, timestamp=ts, source=src)
+                    else:
+                        c = msg.get("cmd", [0.0, 0.0, 0.0])
+                        rid = int(msg.get("id", 0))
+                        if isinstance(c, (list, tuple)) and len(c) >= 3:
+                            self.set_command(float(c[0]), float(c[1]), float(c[2]), robot_id=rid, timestamp=client_ts, source=msg_source)
                     if self.referee is not None:
                         gc_cmd = msg.get("game_controller_cmd")
                         if isinstance(gc_cmd, (list, tuple)) and len(gc_cmd) == 5:
@@ -2122,7 +2137,9 @@ class MultiRobotMujocoSim:
                             self.set_joint_angle_targets(ja_by_rid)
 
                     if not reset_triggered:
-                        counter = self._step_once(counter)
+                        substeps = max(1, int(self.control_decimation))
+                        for _ in range(substeps):
+                            counter = self._step_once(counter)
                         step_latency = time.time() - step_start
                     else:
                         step_latency = 0.0
