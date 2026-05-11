@@ -35,15 +35,43 @@ Quick dependency check:
 uv run python -c "import mujoco, torch, zmq, flask, fastapi, uvicorn; print('ok')"
 ```
 
-## Runtime Model (Current)
+## MuJoCo Interface (Input/Output First)
 
-Current control contract is:
+Current control contract:
 - External control interface: **50Hz** (`dt=0.02`)
 - Internal physics integration: **2ms** step (`sim_dt=0.002`)
 - Internal substeps per external control tick: **10** (`control_decimation=10`)
 - Actuation input to MuJoCo: **joint-based** (`joint_actions` / `joint_targets`)
 
-`cmd_vel` is **not** sent to MuJoCo as direct actuation. It is used by `gait_node` to condition policy output.
+`cmd_vel` is **not** a direct MuJoCo actuation input.
+
+### ZMQ Input (Controller -> MuJoCo)
+
+Request example:
+
+```json
+{
+  "timestamp": 1715420000.123,
+  "source": "controller",
+  "commands": [{"id": 0, "cmd": [1.0, 0.0, 0.0]}],
+  "joint_actions": [{"id": 0, "a": [0.0, 0.0, 0.0]}]
+}
+```
+
+Input fields:
+- `commands`: optional high-level per-robot command (used for sensor obs cmd terms)
+- `joint_actions`: main joint-space actuation input
+- `joint_targets` / `joint_pos`: optional joint-position style inputs
+
+### ZMQ Output (MuJoCo -> Controller)
+
+Response includes:
+- `state`: world summary
+- `sensors`: per-robot sensor payload
+  - `obs`
+  - `joint_pos`, `joint_vel`, `joint_pos_target`
+  - `base_pos`, `base_quat_wxyz`
+- `control_mode`, `sim_timestamp`, `step_latency`, `ack_timestamp`
 
 ## Run Simulation
 
@@ -57,7 +85,7 @@ On macOS:
 uv run mos-sim-run --control-mode joint_target --mujoco-gl cgl --robot-type pi_plus --team-size 1 --port 5555
 ```
 
-## Run External Gait Pipeline (No Mux)
+## Example: External Gait Validation Pipeline (No Mux)
 
 1. Start simulation:
 
@@ -88,27 +116,6 @@ Notes:
 - `gait_node.py` directly communicates with MuJoCo ZMQ (no `control_mux.py`).
 - `--dt 0.02` keeps external policy/control at 50Hz.
 - MuJoCo internally applies 10 physics substeps per control message.
-
-## ZMQ Protocol (Sim)
-
-Request (external controller -> sim):
-
-```json
-{
-  "timestamp": 1715420000.123,
-  "source": "gait_node",
-  "commands": [{"id": 0, "cmd": [1.0, 0.0, 0.0]}],
-  "joint_actions": [{"id": 0, "a": [0.0, 0.0, 0.0]}]
-}
-```
-
-Response (sim -> external controller):
-- `state`: world summary
-- `sensors`: per-robot sensors including
-  - `obs`
-  - `joint_pos`, `joint_vel`, `joint_pos_target`
-  - `base_pos`, `base_quat_wxyz`
-- `control_mode`, `sim_timestamp`, `step_latency`, `ack_timestamp`
 
 ## Simulation Manager
 
