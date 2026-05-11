@@ -38,7 +38,7 @@ uv run python -c "import mujoco, torch, zmq, flask, fastapi, uvicorn; print('ok'
 ## Run Simulation (pi_plus)
 
 ```bash
-uv run mos-sim-run --robot-type pi_plus --team-size 3
+uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 3
 ```
 
 Notes:
@@ -47,7 +47,7 @@ Notes:
 - default webview: `http://localhost:5811`
 - default ZMQ REP endpoint: `tcp://*:5555`
 
-Run as pure simulation server for external gait (joint-target mode):
+Run as pure simulation server for external gait:
 
 ```bash
 uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 1 --port 5555
@@ -86,7 +86,7 @@ Simulation:
 - `--web-width <int>`
 - `--web-height <int>`
 - `--policy-device cpu|gpu`
-- `--control-mode policy|joint_target`
+- `--control-mode joint_target|policy`
 - `--mujoco-gl egl|glfw|osmesa|cgl`
 - `--use-referee` / `--no-use-referee`
 
@@ -95,17 +95,12 @@ Manager start request supports:
 - `zmq_port`
 - `webview_port`
 - `policy_device`
+- `control_mode`
 - `use_referee`
 
 ## ZMQ Protocol
 
-Legacy cmd-vel request (still supported):
-
-```json
-{"cmd":[vx,vy,w], "id":0, "timestamp": 0, "source":"xxx"}
-```
-
-Joint-target request (for `--control-mode joint_target`):
+Joint-target request:
 
 ```json
 {
@@ -123,6 +118,12 @@ Single-robot shorthand:
 {"id":0, "joint_pos":[...], "timestamp":1715420000.123, "source":"gait"}
 ```
 
+External policy-action request (used by `tools/external_gait_controller.py`):
+
+```json
+{"timestamp":1715420000.123, "source":"external_gait", "joint_actions":[{"id":0, "a":[...]}]}
+```
+
 Response includes:
 - `state`: world state summary (robots/ball)
 - `sensors`: per-robot sensor payload
@@ -131,10 +132,9 @@ Response includes:
   - `base_pos`, `base_quat_wxyz`
 - `control_mode`, `sim_timestamp`, `step_latency`, `ack_timestamp`
 
-Behavior note for `joint_target` mode:
-- Joint actuation is driven by `joint_targets` / `joint_pos` inputs.
-- Legacy `cmd`/`cmd_vel` messages are still parsed and can affect command buffer related observation terms.
-- Sending only `cmd`/`cmd_vel` is not sufficient for joint-target actuation.
+Actuation note:
+- MuJoCo actuation input is joint-based only (`joint_targets`, `joint_pos`, `joint_actions`).
+- `cmd_vel` control is not used as an actuation interface in this hardware-style setup.
 
 ## Notes
 
