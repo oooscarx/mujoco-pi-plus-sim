@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mujoco-pi-plus-sim"
+version = "0.1.0"
+description = "Standalone MuJoCo + pi_plus simulation pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+  { name = "MOS-Brain Contributors" }
+]
+dependencies = [
+  "fastapi==0.134.0",
+  "flask==3.1.3",
+  "flask-socketio==5.6.1",
+  "mujoco==3.5.0",
+  "numpy==2.4.2",
+  "pillow==11.3.0",
+  "pydantic==2.12.5",
+  "pyyaml==6.0.3",
+  "pyzmq==26.4.0",
+  "python-engineio==4.13.1",
+  "python-socketio==5.16.1",
+  "torch==2.10.0",
+  "uvicorn==0.41.0",
+]
+
+[project.scripts]
+mos-sim-run = "app.runner:main"
+mos-sim-manager = "sim_manager:main"
+
+[tool.setuptools]
+packages = ["app"]
+py-modules = ["sim2sim_runner", "sim_manager"]
+
+[tool.uv]
+package = true

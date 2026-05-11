@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+.sim_manager_registry.json
+*.log
+.DS_Store
+*.egg-info/
