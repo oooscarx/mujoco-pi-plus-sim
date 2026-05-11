@@ -153,3 +153,20 @@ Deduplicated by email:
 2. 罗绍殷 (`luo-sy24`) `<luo-sy24@mails.tsinghua.edu.cn>`
 3. wangju (aka `infrontlight`) `<j-wang24@mails.tsinghua.edu.cn>`, `<1051330335@qq.com>`
 4. wegg111 `<1047950878@qq.com>`
+
+
+## External Gait Controller
+
+Run simulation in hardware mode (joint_target):
+
+```bash
+uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 1 --port 5555
+```
+
+Run external gait process in another terminal:
+
+```bash
+uv run python tools/external_gait_controller.py --host 127.0.0.1 --port 5555
+```
+
+`tools/external_gait_controller.py` reads `sensors.robots[*].obs`, runs policy externally, and sends `joint_actions` back via ZMQ.

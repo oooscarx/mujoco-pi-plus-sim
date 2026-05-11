@@ -1031,13 +1031,15 @@ class MultiRobotMujocoSim:
             self.model.opt.noslip_iterations = 100
         self.control_decimation = int(self.robot_cfg.control_decimation)
 
-        self.gait_controller = PolicyGaitController(args.policy, args.policy_device)
-        print(f"[MultiRobotMujocoSim] gait policy device: {self.gait_controller.device}")
+        self.gait_controller: PolicyGaitController | None = None
+        if self.control_mode == "policy":
+            self.gait_controller = PolicyGaitController(args.policy, args.policy_device)
+            print(f"[MultiRobotMujocoSim] gait policy device: {self.gait_controller.device}")
         print(f"[MultiRobotMujocoSim] control mode: {self.control_mode}")
 
         self.robot_specs: dict[int, RobotSpec] = self._build_robot_specs()
         self._apply_team_body_colors()
-        if self.robot_specs:
+        if self.robot_specs and self.gait_controller is not None:
             sample_spec = next(iter(self.robot_specs.values()))
             expected_obs_dim = len(sample_spec.obs_history)
             expected_act_dim = len(sample_spec.last_action)
@@ -1487,7 +1489,7 @@ class MultiRobotMujocoSim:
         debug_act = None
         obs_by_rid = self.get_sensor_observations()
         infer_rids = [rid for rid in self.robot_specs if not self._is_robot_protected(rid)]
-        if infer_rids:
+        if infer_rids and self.gait_controller is not None:
             obs_batch = np.stack([obs_by_rid[rid] for rid in infer_rids], axis=0).astype(np.float32, copy=False)
             act_batch = self.gait_controller.infer_actions(obs_batch)
             self.set_joint_angle_targets({rid: act_batch[i] for i, rid in enumerate(infer_rids)})
@@ -2004,12 +2006,6 @@ class MultiRobotMujocoSim:
         reset_triggered = False
         if cmds.spawn_points is not None:
             self.set_spawn_points(cmds.spawn_points)
-        if cmds.velocity_cmds is not None:
-            for name, vx, vy, wz in cmds.velocity_cmds:
-                rid = FIXED_ROBOT_NAME_TO_ID.get(name, None)
-                if rid is None:
-                    continue
-                self.set_command(float(vx), float(vy), float(wz), robot_id=rid, timestamp=time.time(), source="webview")
         if cmds.reset_env:
             # Reset robots/ball/runtime state but keep current referee state.
             self.reset(preserve_ball=False, reset_referee=False)
@@ -2092,22 +2088,6 @@ class MultiRobotMujocoSim:
                         gc_cmd = msg.get("game_controller_cmd")
                         if isinstance(gc_cmd, (list, tuple)) and len(gc_cmd) == 5:
                             self.referee.apply_auto_ref_command(gc_cmd)
-                    if "commands" in msg and isinstance(msg["commands"], list):
-                        for item in msg["commands"]:
-                            if not isinstance(item, dict):
-                                continue
-                            c = item.get("cmd", [0.0, 0.0, 0.0])
-                            rid = int(item.get("id", 0))
-                            ts = item.get("timestamp", client_ts)
-                            src = item.get("source", msg_source)
-                            if isinstance(c, (list, tuple)) and len(c) >= 3:
-                                self.set_command(float(c[0]), float(c[1]), float(c[2]), robot_id=rid, timestamp=ts, source=src)
-                    else:
-                        c = msg.get("cmd", [0.0, 0.0, 0.0])
-                        rid = int(msg.get("id", 0))
-                        if isinstance(c, (list, tuple)) and len(c) >= 3:
-                            self.set_command(float(c[0]), float(c[1]), float(c[2]), robot_id=rid, timestamp=client_ts, source=msg_source)
-
                     # New protocol: external gait sends per-robot joint position targets.
                     # Format:
                     # {
@@ -2129,6 +2109,17 @@ class MultiRobotMujocoSim:
                     elif "joint_pos" in msg and isinstance(msg.get("joint_pos"), (list, tuple)):
                         rid = int(msg.get("id", 0))
                         self.set_joint_position_targets({rid: np.asarray(msg["joint_pos"], dtype=np.float32)})
+                    elif "joint_actions" in msg and isinstance(msg["joint_actions"], list):
+                        ja_by_rid: dict[int, np.ndarray] = {}
+                        for item in msg["joint_actions"]:
+                            if not isinstance(item, dict):
+                                continue
+                            rid = int(item.get("id", -1))
+                            a = item.get("a")
+                            if isinstance(a, (list, tuple)):
+                                ja_by_rid[rid] = np.asarray(a, dtype=np.float32)
+                        if ja_by_rid:
+                            self.set_joint_angle_targets(ja_by_rid)
 
                     if not reset_triggered:
                         counter = self._step_once(counter)

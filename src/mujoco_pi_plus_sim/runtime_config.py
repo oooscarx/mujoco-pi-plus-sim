@@ -394,7 +394,7 @@ def parse_runtime_args(mujoco_dir: Path) -> RuntimeArgs:
         "--control-mode",
         type=str,
         choices=["policy", "joint_target"],
-        default="policy",
+        default="joint_target",
         help="Control mode: internal policy inference, or external joint target control via ZMQ.",
     )
     parser.add_argument(

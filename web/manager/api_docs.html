@@ -52,7 +52,7 @@
   "allow_keyboard_control": false,
   "zmq": true,
   "policy_device": "gpu",
-  "control_mode": "policy",
+  "control_mode": "joint_target",
   "mujoco_gl": null,
   "use_referee": false,
   "web_fps": 20,
@@ -60,6 +60,7 @@
   "web_height": 720
 }</pre>
       <p><code>zmq_port/webview_port</code> 留空或传 <code>null</code> 时，manager 会自动分配可用端口。</p>
+      <p>In <code>joint_target</code> mode, use ZMQ <code>joint_targets</code>/<code>joint_actions</code>; legacy <code>cmd</code> velocity control is disabled.</p>
     </div>
 
     <div class="card">

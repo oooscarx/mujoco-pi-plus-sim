@@ -119,7 +119,7 @@
             </div>
 
             <div class="control-section">
-                <h3>Velocity Control</h3>
+                <h3>Velocity Control (disabled in joint_target mode)</h3>
                 <div id="velocity-controls" class="velocity-list"></div>
                 <details class="velocity-info">
                     <summary>Information</summary>
@@ -244,7 +244,7 @@
         }
 
         function emitRobotVelocity(name, vx, vy, wz) {
-            socket.emit('set_robot_velocity', { name, vx, vy, wz });
+            console.warn('cmd_vel control disabled in this build; use external gait ZMQ joint_actions/joint_targets');
         }
 
         function setVelocityForRobot(name) {

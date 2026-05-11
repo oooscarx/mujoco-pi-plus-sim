@@ -30,7 +30,6 @@ MANAGER_API_DOCS_HTML = MANAGER_WEB_DIR / "api_docs.html"
 
 
 SIM_CMD_PATTERNS = [
-    "mujoco/sim2sim_runner.py",
     "mujoco_pi_plus_sim.runner",
     " app.runner",
     " app/runner.py",
@@ -165,7 +164,7 @@ class StartSimRequest(BaseModel):
     allow_keyboard_control: bool = False
     robot_type: str = Field(default="pi_plus", pattern="^pi_plus$")
     policy_device: str = Field(default="gpu", pattern="^(cpu|gpu)$")
-    control_mode: str = Field(default="policy", pattern="^(policy|joint_target)$")
+    control_mode: str = Field(default="joint_target", pattern="^(policy|joint_target)$")
     mujoco_gl: str | None = Field(default=None, pattern="^(egl|glfw|osmesa|cgl)$")
     policy: str | None = None
     robot_xml: str | None = None
@@ -239,7 +238,8 @@ class SimManager:
         )
         cmd = [
             str(PYTHON_BIN),
-            str(MUJOCO_DIR / "sim2sim_runner.py"),
+            "-m",
+            "mujoco_pi_plus_sim.runner",
             "--robot-type",
             req.robot_type,
             "--team-size",

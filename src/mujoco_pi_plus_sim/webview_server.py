@@ -24,7 +24,6 @@ class WebMsgBuffer:
     camera_preset: str | None = None
     teleport_cmd: tuple[str, float, float, float | None, float | None] | None = None
     spawn_points: dict[str, list[float]] | None = None
-    velocity_cmds: list[tuple[str, float, float, float]] | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -89,16 +88,7 @@ class MujocoLabWebView:
             with self.msg.lock:
                 self.msg.spawn_points = data if isinstance(data, dict) else {}
 
-        @self.socketio.on("set_robot_velocity")
-        def on_set_robot_velocity(data):
-            name = str(data.get("name", ""))
-            vx = float(data.get("vx", 0.0))
-            vy = float(data.get("vy", 0.0))
-            wz = float(data.get("wz", 0.0))
-            with self.msg.lock:
-                if self.msg.velocity_cmds is None:
-                    self.msg.velocity_cmds = []
-                self.msg.velocity_cmds.append((name, vx, vy, wz))
+
 
     def start(self, port: int = 5811):
         t = threading.Thread(
@@ -124,7 +114,6 @@ class MujocoLabWebView:
                 camera_preset=self.msg.camera_preset,
                 teleport_cmd=self.msg.teleport_cmd,
                 spawn_points=self.msg.spawn_points,
-                velocity_cmds=list(self.msg.velocity_cmds) if self.msg.velocity_cmds is not None else None,
             )
             self.msg.reset_env = False
             self.msg.restart_match = False
@@ -133,7 +122,6 @@ class MujocoLabWebView:
             self.msg.camera_preset = None
             self.msg.teleport_cmd = None
             self.msg.spawn_points = None
-            self.msg.velocity_cmds = None
             return out
 
     def emit_frame(self, rgb: np.ndarray):
