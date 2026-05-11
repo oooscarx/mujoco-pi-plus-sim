@@ -6,10 +6,8 @@ from __future__ import annotations
 import json
 import math
 import re
-import sys
 import tempfile
 import time
-import types
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,10 +15,9 @@ import xml.etree.ElementTree as ET
 
 import mujoco
 import numpy as np
-import torch
-import torch.nn as nn
 import zmq
 
+from .gait_policy import PolicyGaitController
 from .runtime_config import (
     ACTION_CLIP,
     ACTION_SMOOTH_FILTER,
@@ -52,30 +49,6 @@ DRAG_CMD_ZERO_POLICY_FRAMES = 5
 FALL_RESET_PROTECT_SEC = 1.5
 FALL_UPRIGHT_DOT_MIN = 0.2
 FALL_CONFIRM_FRAMES = 10
-
-
-def _load_checkpoint_compat(path: Path, map_location: torch.device):
-    try:
-        return torch.load(path, map_location=map_location, weights_only=False)
-    except ModuleNotFoundError as e:
-        # pi_plus checkpoints may include rsl_rl.utils.utils.Normalizer in pickle payload.
-        if "rsl_rl" not in str(e):
-            raise
-        rsl_rl_mod = types.ModuleType("rsl_rl")
-        utils_pkg = types.ModuleType("rsl_rl.utils")
-        utils_mod = types.ModuleType("rsl_rl.utils.utils")
-
-        class Normalizer:
-            pass
-
-        Normalizer.__module__ = "rsl_rl.utils.utils"
-        utils_mod.Normalizer = Normalizer
-        rsl_rl_mod.utils = utils_pkg
-        utils_pkg.utils = utils_mod
-        sys.modules.setdefault("rsl_rl", rsl_rl_mod)
-        sys.modules.setdefault("rsl_rl.utils", utils_pkg)
-        sys.modules.setdefault("rsl_rl.utils.utils", utils_mod)
-        return torch.load(path, map_location=map_location, weights_only=False)
 
 
 def _load_field_size_from_match_config(match_config_path: Path | None) -> tuple[float, float] | None:
@@ -917,22 +890,6 @@ def _build_multi_robot_soccer_scene_xml(
     return xml_path, active_robot_ids
 
 
-class MLPActor(nn.Module):
-    def __init__(self, layer_dims: list[int]):
-        super().__init__()
-        if len(layer_dims) < 2:
-            raise ValueError("Actor layer_dims must contain at least input and output sizes")
-        layers: list[nn.Module] = []
-        for i in range(len(layer_dims) - 1):
-            layers.append(nn.Linear(layer_dims[i], layer_dims[i + 1]))
-            if i < len(layer_dims) - 2:
-                layers.append(nn.ELU())
-        self.actor = nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.actor(x)
-
-
 def _quat_to_rot_world_from_body(quat_wxyz: np.ndarray) -> np.ndarray:
     w, x, y, z = quat_wxyz
     return np.array(
@@ -1022,6 +979,7 @@ class MultiRobotMujocoSim:
     def __init__(self, args: RuntimeArgs):
         self.args = args
         self.robot_cfg: RobotRuntimeConfig = args.robot_cfg
+        self.control_mode = str(args.control_mode)
         self.max_red_robots = args.max_red_robots
         self.max_blue_robots = args.max_blue_robots
         self.active_robot_ids = self._active_ids_from_limits(self.max_red_robots, self.max_blue_robots)
@@ -1073,9 +1031,9 @@ class MultiRobotMujocoSim:
             self.model.opt.noslip_iterations = 100
         self.control_decimation = int(self.robot_cfg.control_decimation)
 
-        self.policy_device = self._resolve_policy_device(args.policy_device)
-        print(f"[MultiRobotMujocoSim] policy device: {self.policy_device}")
-        self.policy = self._load_policy(args.policy)
+        self.gait_controller = PolicyGaitController(args.policy, args.policy_device)
+        print(f"[MultiRobotMujocoSim] gait policy device: {self.gait_controller.device}")
+        print(f"[MultiRobotMujocoSim] control mode: {self.control_mode}")
 
         self.robot_specs: dict[int, RobotSpec] = self._build_robot_specs()
         self._apply_team_body_colors()
@@ -1083,13 +1041,13 @@ class MultiRobotMujocoSim:
             sample_spec = next(iter(self.robot_specs.values()))
             expected_obs_dim = len(sample_spec.obs_history)
             expected_act_dim = len(sample_spec.last_action)
-            if expected_obs_dim != self._policy_obs_dim:
+            if expected_obs_dim != self.gait_controller.shape.obs_dim:
                 raise RuntimeError(
-                    f"Policy obs dim mismatch: policy={self._policy_obs_dim} robot={expected_obs_dim} type={self.robot_cfg.robot_type}"
+                    f"Policy obs dim mismatch: policy={self.gait_controller.shape.obs_dim} robot={expected_obs_dim} type={self.robot_cfg.robot_type}"
                 )
-            if expected_act_dim != self._policy_action_dim:
+            if expected_act_dim != self.gait_controller.shape.action_dim:
                 raise RuntimeError(
-                    f"Policy action dim mismatch: policy={self._policy_action_dim} robot={expected_act_dim} type={self.robot_cfg.robot_type}"
+                    f"Policy action dim mismatch: policy={self.gait_controller.shape.action_dim} robot={expected_act_dim} type={self.robot_cfg.robot_type}"
                 )
         self.command_buffer: dict[int, np.ndarray] = {
             rid: np.array(DEFAULT_CMD, dtype=np.float32) for rid in FIXED_ROBOT_ID_TO_NAME
@@ -1213,46 +1171,6 @@ class MultiRobotMujocoSim:
         ids.extend(range(0, max_red))
         ids.extend(range(MAX_ROBOTS_PER_TEAM, MAX_ROBOTS_PER_TEAM + max_blue))
         return ids
-
-    @staticmethod
-    def _resolve_policy_device(requested: str) -> torch.device:
-        req = str(requested).strip().lower()
-        if req == "cpu":
-            return torch.device("cpu")
-        if req == "gpu":
-            if torch.cuda.is_available():
-                return torch.device("cuda")
-            print("[MultiRobotMujocoSim] policy device requested=gpu but CUDA is unavailable, fallback to cpu")
-            return torch.device("cpu")
-        raise ValueError(f"Unsupported policy device: {requested}")
-
-    def _load_policy(self, policy_path: Path):
-        ckpt = _load_checkpoint_compat(policy_path, map_location=self.policy_device)
-        state_dict = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
-        if not isinstance(state_dict, dict):
-            raise RuntimeError(f"Unsupported policy checkpoint format: {type(state_dict)}")
-        actor_state = {k: v for k, v in state_dict.items() if k.startswith("actor.")}
-        if not actor_state:
-            raise RuntimeError("Checkpoint does not contain actor.* weights")
-
-        actor_layer_dims: list[int] = []
-        actor_weight_keys = sorted(
-            (k for k in actor_state if re.match(r"^actor\.\d+\.weight$", k)),
-            key=lambda s: int(s.split(".")[1]),
-        )
-        for i, wk in enumerate(actor_weight_keys):
-            w = actor_state[wk]
-            out_dim, in_dim = int(w.shape[0]), int(w.shape[1])
-            if i == 0:
-                actor_layer_dims.append(in_dim)
-            actor_layer_dims.append(out_dim)
-
-        self._policy_obs_dim = int(actor_layer_dims[0])
-        self._policy_action_dim = int(actor_layer_dims[-1])
-        policy = MLPActor(layer_dims=actor_layer_dims).to(self.policy_device)
-        policy.load_state_dict(actor_state, strict=True)
-        policy.eval()
-        return policy
 
     def _build_robot_specs(self) -> dict[int, RobotSpec]:
         specs: dict[int, RobotSpec] = {}
@@ -1486,6 +1404,80 @@ class MultiRobotMujocoSim:
         spec.obs_history[-spec.obs_step_dim :] = obs_step
         return np.clip(spec.obs_history, -self.robot_cfg.obs_clip, self.robot_cfg.obs_clip)
 
+    def get_sensor_observations(self) -> dict[int, np.ndarray]:
+        observations: dict[int, np.ndarray] = {}
+        default_cmd = np.asarray(DEFAULT_CMD, dtype=np.float32)
+        for spec in self.robot_specs.values():
+            if self._is_robot_protected(spec.rid):
+                observations[spec.rid] = self._obs_for_robot(spec, cmd_override=default_cmd)
+                continue
+            zero_left = self._robot_cmd_zero_frames_left.get(spec.rid, 0)
+            if zero_left > 0:
+                observations[spec.rid] = self._obs_for_robot(spec, cmd_override=default_cmd)
+                self._robot_cmd_zero_frames_left[spec.rid] = zero_left - 1
+            else:
+                observations[spec.rid] = self._obs_for_robot(spec)
+        return observations
+
+    def set_joint_angle_targets(self, targets_by_rid: dict[int, np.ndarray]) -> None:
+        for rid, target in targets_by_rid.items():
+            spec = self.robot_specs.get(rid)
+            if spec is None or self._is_robot_protected(rid):
+                continue
+            act = np.asarray(target, dtype=np.float32)
+            if act.shape[0] != spec.last_action.shape[0]:
+                continue
+            act = np.nan_to_num(act, nan=0.0, posinf=0.0, neginf=0.0)
+            if (
+                self.robot_cfg.robot_type == PI_PLUS_ROBOT_TYPE
+                and spec.pi_default_dof_pos is not None
+                and spec.pi_isaac_to_mujoco_idx is not None
+                and spec.pi_mujoco_to_isaac_idx is not None
+                and spec.pi_filtered_dof_target is not None
+                and spec.pi_target_dof_pos is not None
+            ):
+                act = np.clip(act, ACTION_CLIP[0], ACTION_CLIP[1]).astype(np.float32, copy=False)
+                spec.last_action[:] = act
+                actions_scaled = act * spec.action_scale
+                target_dof_pos = actions_scaled[spec.pi_isaac_to_mujoco_idx] + spec.pi_default_dof_pos
+                if ACTION_SMOOTH_FILTER:
+                    spec.pi_filtered_dof_target[:] = spec.pi_filtered_dof_target * 0.2 + target_dof_pos * 0.8
+                else:
+                    spec.pi_filtered_dof_target[:] = target_dof_pos
+                spec.pi_target_dof_pos[:] = spec.pi_filtered_dof_target
+                spec.target_joint_pos[:] = spec.pi_target_dof_pos[spec.pi_mujoco_to_isaac_idx]
+                spec.filtered_dof_target[:] = spec.target_joint_pos
+            else:
+                spec.last_action[:] = act
+                act_scaled = np.clip(act * spec.action_scale, ACTION_CLIP[0], ACTION_CLIP[1])
+                joint_pos_action = spec.init_angles + act_scaled
+                if ACTION_SMOOTH_FILTER:
+                    spec.filtered_dof_target[:] = spec.filtered_dof_target * 0.2 + joint_pos_action * 0.8
+                else:
+                    spec.filtered_dof_target[:] = joint_pos_action
+                spec.target_joint_pos[:] = spec.filtered_dof_target
+
+    def set_joint_position_targets(self, positions_by_rid: dict[int, np.ndarray]) -> None:
+        for rid, q_target in positions_by_rid.items():
+            spec = self.robot_specs.get(rid)
+            if spec is None or self._is_robot_protected(rid):
+                continue
+            q = np.asarray(q_target, dtype=np.float32)
+            if q.shape[0] != spec.target_joint_pos.shape[0]:
+                continue
+            q = np.nan_to_num(q, nan=0.0, posinf=0.0, neginf=0.0)
+            spec.target_joint_pos[:] = q
+            spec.filtered_dof_target[:] = q
+            if (
+                self.robot_cfg.robot_type == PI_PLUS_ROBOT_TYPE
+                and spec.pi_target_dof_pos is not None
+                and spec.pi_filtered_dof_target is not None
+                and spec.pi_isaac_to_mujoco_idx is not None
+            ):
+                # External input is expected in policy order; convert to MuJoCo order.
+                spec.pi_target_dof_pos[:] = q[spec.pi_isaac_to_mujoco_idx]
+                spec.pi_filtered_dof_target[:] = spec.pi_target_dof_pos
+
     def _compute_targets(self):
         self._policy_step_count += 1
         debug_rid = FIXED_ROBOT_NAME_TO_ID.get("robot_rp0")
@@ -1493,72 +1485,15 @@ class MultiRobotMujocoSim:
             debug_rid = next(iter(self.robot_specs.keys()), None)
         debug_obs = None
         debug_act = None
-        infer_specs: list[RobotSpec] = []
-        infer_obs: list[np.ndarray] = []
-        default_cmd = np.asarray(DEFAULT_CMD, dtype=np.float32)
-
-        for spec in self.robot_specs.values():
-            if self._is_robot_protected(spec.rid):
-                spec.last_action[:] = 0.0
-                spec.filtered_dof_target[:] = spec.init_angles
-                spec.target_joint_pos[:] = spec.init_angles
-                if spec.pi_default_dof_pos is not None and spec.pi_filtered_dof_target is not None and spec.pi_target_dof_pos is not None:
-                    spec.pi_filtered_dof_target[:] = spec.pi_default_dof_pos
-                    spec.pi_target_dof_pos[:] = spec.pi_default_dof_pos
-                continue
-
-            zero_left = self._robot_cmd_zero_frames_left.get(spec.rid, 0)
-            if zero_left > 0:
-                obs = self._obs_for_robot(spec, cmd_override=default_cmd)
-                self._robot_cmd_zero_frames_left[spec.rid] = zero_left - 1
-            else:
-                obs = self._obs_for_robot(spec)
-
-            infer_specs.append(spec)
-            infer_obs.append(obs)
-
-        if infer_specs:
-            obs_batch = np.stack(infer_obs, axis=0).astype(np.float32, copy=False)
-            with torch.inference_mode():
-                obs_tensor = torch.from_numpy(obs_batch).to(self.policy_device)
-                act_batch = self.policy(obs_tensor).detach().cpu().numpy().astype(np.float32, copy=False)
-            if act_batch.ndim == 1:
-                act_batch = act_batch.reshape(1, -1)
-
-            for i, spec in enumerate(infer_specs):
-                act = np.nan_to_num(act_batch[i], nan=0.0, posinf=0.0, neginf=0.0)
-                if spec.rid == debug_rid:
-                    debug_obs = infer_obs[i].copy()
-                    debug_act = act.copy()
-                if (
-                    self.robot_cfg.robot_type == PI_PLUS_ROBOT_TYPE
-                    and spec.pi_default_dof_pos is not None
-                    and spec.pi_isaac_to_mujoco_idx is not None
-                    and spec.pi_mujoco_to_isaac_idx is not None
-                    and spec.pi_filtered_dof_target is not None
-                    and spec.pi_target_dof_pos is not None
-                ):
-                    act = np.clip(act, ACTION_CLIP[0], ACTION_CLIP[1]).astype(np.float32, copy=False)
-                    spec.last_action[:] = act
-                    actions_scaled = act * spec.action_scale
-                    target_dof_pos = actions_scaled[spec.pi_isaac_to_mujoco_idx] + spec.pi_default_dof_pos
-                    if ACTION_SMOOTH_FILTER:
-                        spec.pi_filtered_dof_target[:] = spec.pi_filtered_dof_target * 0.2 + target_dof_pos * 0.8
-                    else:
-                        spec.pi_filtered_dof_target[:] = target_dof_pos
-                    spec.pi_target_dof_pos[:] = spec.pi_filtered_dof_target
-                    # Keep legacy buffers coherent (policy order) for debug/reset consistency.
-                    spec.target_joint_pos[:] = spec.pi_target_dof_pos[spec.pi_mujoco_to_isaac_idx]
-                    spec.filtered_dof_target[:] = spec.target_joint_pos
-                else:
-                    spec.last_action[:] = act
-                    act_scaled = np.clip(act * spec.action_scale, ACTION_CLIP[0], ACTION_CLIP[1])
-                    joint_pos_action = spec.init_angles + act_scaled
-                    if ACTION_SMOOTH_FILTER:
-                        spec.filtered_dof_target[:] = spec.filtered_dof_target * 0.2 + joint_pos_action * 0.8
-                    else:
-                        spec.filtered_dof_target[:] = joint_pos_action
-                    spec.target_joint_pos[:] = spec.filtered_dof_target
+        obs_by_rid = self.get_sensor_observations()
+        infer_rids = [rid for rid in self.robot_specs if not self._is_robot_protected(rid)]
+        if infer_rids:
+            obs_batch = np.stack([obs_by_rid[rid] for rid in infer_rids], axis=0).astype(np.float32, copy=False)
+            act_batch = self.gait_controller.infer_actions(obs_batch)
+            self.set_joint_angle_targets({rid: act_batch[i] for i, rid in enumerate(infer_rids)})
+            if debug_rid is not None and debug_rid in obs_by_rid and debug_rid in infer_rids:
+                debug_obs = obs_by_rid[debug_rid].copy()
+                debug_act = act_batch[infer_rids.index(debug_rid)].copy()
 
         if (
             not self._printed_target_policy_io
@@ -1611,7 +1546,7 @@ class MultiRobotMujocoSim:
         pre_hold_changed = self._apply_robot_protection_holds()
         if pre_hold_changed:
             mujoco.mj_forward(self.model, self.data)
-        if counter % self.control_decimation == 0:
+        if self.control_mode == "policy" and counter % self.control_decimation == 0:
             self._compute_targets()
         self._apply_torque()
         mujoco.mj_step(self.model, self.data)
@@ -1992,6 +1927,34 @@ class MultiRobotMujocoSim:
             out["gamecontroller"] = self.referee.game_state_dict()
         return out
 
+    def sensors_for_zmq(self) -> dict:
+        obs_by_rid = self.get_sensor_observations()
+        robots = []
+        for rid in self.active_robot_ids:
+            spec = self.robot_specs[rid]
+            quat = self.data.qpos[spec.base_qpos_adr + 3 : spec.base_qpos_adr + 7]
+            robots.append(
+                {
+                    "id": rid,
+                    "name": spec.name,
+                    "team": spec.team,
+                    "base_pos": [
+                        float(self.data.qpos[spec.base_qpos_adr + 0]),
+                        float(self.data.qpos[spec.base_qpos_adr + 1]),
+                        float(self.data.qpos[spec.base_qpos_adr + 2]),
+                    ],
+                    "base_quat_wxyz": [float(v) for v in quat],
+                    "joint_pos_target": [float(v) for v in spec.target_joint_pos],
+                    "joint_pos": [float(v) for v in self.data.qpos[spec.qpos_idx]],
+                    "joint_vel": [float(v) for v in self.data.qvel[spec.qvel_idx]],
+                    "obs": [float(v) for v in obs_by_rid.get(rid, np.zeros_like(spec.obs_history))],
+                }
+            )
+        out = {"robots": robots}
+        if self.referee is not None:
+            out["gamecontroller"] = self.referee.game_state_dict()
+        return out
+
     def _set_camera_eye_lookat(self, eye: tuple[float, float, float], lookat: tuple[float, float, float]):
         if self._web_camera is None:
             return
@@ -2145,6 +2108,28 @@ class MultiRobotMujocoSim:
                         if isinstance(c, (list, tuple)) and len(c) >= 3:
                             self.set_command(float(c[0]), float(c[1]), float(c[2]), robot_id=rid, timestamp=client_ts, source=msg_source)
 
+                    # New protocol: external gait sends per-robot joint position targets.
+                    # Format:
+                    # {
+                    #   "joint_targets": [{"id": 0, "q": [...]}, ...],
+                    #   "timestamp": ...,
+                    #   "source": "gait"
+                    # }
+                    if "joint_targets" in msg and isinstance(msg["joint_targets"], list):
+                        jt_by_rid: dict[int, np.ndarray] = {}
+                        for item in msg["joint_targets"]:
+                            if not isinstance(item, dict):
+                                continue
+                            rid = int(item.get("id", -1))
+                            q = item.get("q")
+                            if isinstance(q, (list, tuple)):
+                                jt_by_rid[rid] = np.asarray(q, dtype=np.float32)
+                        if jt_by_rid:
+                            self.set_joint_position_targets(jt_by_rid)
+                    elif "joint_pos" in msg and isinstance(msg.get("joint_pos"), (list, tuple)):
+                        rid = int(msg.get("id", 0))
+                        self.set_joint_position_targets({rid: np.asarray(msg["joint_pos"], dtype=np.float32)})
+
                     if not reset_triggered:
                         counter = self._step_once(counter)
                         step_latency = time.time() - step_start
@@ -2152,6 +2137,8 @@ class MultiRobotMujocoSim:
                         step_latency = 0.0
                     response = {
                         "state": self.state_for_zmq(),
+                        "sensors": self.sensors_for_zmq(),
+                        "control_mode": self.control_mode,
                         "sim_timestamp": time.time(),
                         "step_latency": step_latency,
                         "ack_timestamp": client_ts,

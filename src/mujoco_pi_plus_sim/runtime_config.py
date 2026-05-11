@@ -286,6 +286,7 @@ class RuntimeArgs:
     max_blue_robots: int
     use_referee: bool
     policy_device: str
+    control_mode: str
     real_time: bool
     mujoco_gl: str | None
 
@@ -390,6 +391,13 @@ def parse_runtime_args(mujoco_dir: Path) -> RuntimeArgs:
         help="Policy inference device. If set to gpu but CUDA is unavailable, falls back to CPU.",
     )
     parser.add_argument(
+        "--control-mode",
+        type=str,
+        choices=["policy", "joint_target"],
+        default="policy",
+        help="Control mode: internal policy inference, or external joint target control via ZMQ.",
+    )
+    parser.add_argument(
         "--mujoco-gl",
         type=str,
         default=None,
@@ -425,6 +433,7 @@ def parse_runtime_args(mujoco_dir: Path) -> RuntimeArgs:
         max_blue_robots=team_size,
         use_referee=ns.use_referee,
         policy_device=ns.policy_device,
+        control_mode=ns.control_mode,
         real_time=ns.real_time,
         mujoco_gl=ns.mujoco_gl,
     )
@@ -459,4 +468,3 @@ def parse_param_for_joint_names(joint_names: list[str], param: float | dict[str,
         if not matched:
             out[i] = 1e-7
     return out
-

@@ -47,6 +47,18 @@ Notes:
 - default webview: `http://localhost:5811`
 - default ZMQ REP endpoint: `tcp://*:5555`
 
+Run as pure simulation server for external gait (joint-target mode):
+
+```bash
+uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 1 --port 5555
+```
+
+On macOS, add GL override:
+
+```bash
+uv run mos-sim-run --control-mode joint_target --mujoco-gl cgl --robot-type pi_plus --team-size 1 --port 5555
+```
+
 ## Run Simulation Manager
 
 ```bash
@@ -74,6 +86,8 @@ Simulation:
 - `--web-width <int>`
 - `--web-height <int>`
 - `--policy-device cpu|gpu`
+- `--control-mode policy|joint_target`
+- `--mujoco-gl egl|glfw|osmesa|cgl`
 - `--use-referee` / `--no-use-referee`
 
 Manager start request supports:
@@ -83,13 +97,44 @@ Manager start request supports:
 - `policy_device`
 - `use_referee`
 
-## ZMQ Command Format
+## ZMQ Protocol
 
-Single command request:
+Legacy cmd-vel request (still supported):
 
 ```json
 {"cmd":[vx,vy,w], "id":0, "timestamp": 0, "source":"xxx"}
 ```
+
+Joint-target request (for `--control-mode joint_target`):
+
+```json
+{
+  "timestamp": 1715420000.123,
+  "source": "gait",
+  "joint_targets": [
+    {"id": 0, "q": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+  ]
+}
+```
+
+Single-robot shorthand:
+
+```json
+{"id":0, "joint_pos":[...], "timestamp":1715420000.123, "source":"gait"}
+```
+
+Response includes:
+- `state`: world state summary (robots/ball)
+- `sensors`: per-robot sensor payload
+  - `obs` (policy observation vector)
+  - `joint_pos`, `joint_vel`, `joint_pos_target`
+  - `base_pos`, `base_quat_wxyz`
+- `control_mode`, `sim_timestamp`, `step_latency`, `ack_timestamp`
+
+Behavior note for `joint_target` mode:
+- Joint actuation is driven by `joint_targets` / `joint_pos` inputs.
+- Legacy `cmd`/`cmd_vel` messages are still parsed and can affect command buffer related observation terms.
+- Sending only `cmd`/`cmd_vel` is not sufficient for joint-target actuation.
 
 ## Notes
 

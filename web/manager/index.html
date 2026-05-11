@@ -81,6 +81,9 @@
           <label>policy_device
             <select id="policy_device"><option value="gpu" selected>gpu</option><option value="cpu">cpu</option></select>
           </label>
+          <label>control_mode
+            <select id="control_mode"><option value="policy" selected>policy</option><option value="joint_target">joint_target</option></select>
+          </label>
           <label>mujoco_gl
             <select id="mujoco_gl">
               <option value="" selected>auto(default)</option>
@@ -213,6 +216,7 @@
           web_width: parseInt(document.getElementById("web_width").value || "1280"),
           web_height: parseInt(document.getElementById("web_height").value || "720"),
           policy_device: document.getElementById("policy_device").value || "gpu",
+          control_mode: document.getElementById("control_mode").value || "policy",
           mujoco_gl: (document.getElementById("mujoco_gl").value || "") || null,
           webview: document.getElementById("webview").value === "true",
           zmq: document.getElementById("zmq").value === "true",

@@ -165,6 +165,7 @@ class StartSimRequest(BaseModel):
     allow_keyboard_control: bool = False
     robot_type: str = Field(default="pi_plus", pattern="^pi_plus$")
     policy_device: str = Field(default="gpu", pattern="^(cpu|gpu)$")
+    control_mode: str = Field(default="policy", pattern="^(policy|joint_target)$")
     mujoco_gl: str | None = Field(default=None, pattern="^(egl|glfw|osmesa|cgl)$")
     policy: str | None = None
     robot_xml: str | None = None
@@ -255,6 +256,8 @@ class SimManager:
             str(req.web_height),
             "--policy-device",
             req.policy_device,
+            "--control-mode",
+            req.control_mode,
         ]
         cmd += ["--webview"] if req.webview else ["--no-webview"]
         cmd += ["--allow-keyboard-control"] if req.allow_keyboard_control else ["--no-allow-keyboard-control"]
