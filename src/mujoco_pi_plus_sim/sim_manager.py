@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import signal
@@ -19,7 +20,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 
-MUJOCO_DIR = Path(__file__).resolve().parents[1]
+# src/mujoco_pi_plus_sim/sim_manager.py -> project root is two levels up.
+MUJOCO_DIR = Path(__file__).resolve().parents[2]
 PYTHON_BIN = Path(os.environ.get("PYTHON", "python"))
 REGISTRY_PATH = MUJOCO_DIR / ".sim_manager_registry.json"
 MANAGER_WEB_DIR = MUJOCO_DIR / "web" / "manager"
@@ -29,6 +31,7 @@ MANAGER_API_DOCS_HTML = MANAGER_WEB_DIR / "api_docs.html"
 
 SIM_CMD_PATTERNS = [
     "mujoco/sim2sim_runner.py",
+    "mujoco_pi_plus_sim.runner",
     " app.runner",
     " app/runner.py",
 ]
@@ -162,6 +165,7 @@ class StartSimRequest(BaseModel):
     allow_keyboard_control: bool = False
     robot_type: str = Field(default="pi_plus", pattern="^pi_plus$")
     policy_device: str = Field(default="gpu", pattern="^(cpu|gpu)$")
+    mujoco_gl: str | None = Field(default=None, pattern="^(egl|glfw|osmesa|cgl)$")
     policy: str | None = None
     robot_xml: str | None = None
     soccer_world_xml: str | None = None
@@ -256,6 +260,8 @@ class SimManager:
         cmd += ["--allow-keyboard-control"] if req.allow_keyboard_control else ["--no-allow-keyboard-control"]
         cmd += ["--zmq"] if req.zmq else ["--no-zmq"]
         cmd += ["--use-referee"] if req.use_referee else ["--no-use-referee"]
+        if req.mujoco_gl:
+            cmd += ["--mujoco-gl", req.mujoco_gl]
         if req.policy:
             cmd += ["--policy", req.policy]
         if req.robot_xml:
@@ -412,3 +418,13 @@ def stop_sim(req: StopRequest):
 @app.post("/sims/stop-external")
 def stop_external_sims():
     return manager.stop_external()
+
+
+def main():
+    import uvicorn
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")

@@ -81,6 +81,15 @@
           <label>policy_device
             <select id="policy_device"><option value="gpu" selected>gpu</option><option value="cpu">cpu</option></select>
           </label>
+          <label>mujoco_gl
+            <select id="mujoco_gl">
+              <option value="" selected>auto(default)</option>
+              <option value="egl">egl</option>
+              <option value="glfw">glfw</option>
+              <option value="osmesa">osmesa</option>
+              <option value="cgl">cgl</option>
+            </select>
+          </label>
         </div>
         <div class="actions">
           <button onclick="startSim()">Start</button>
@@ -204,6 +213,7 @@
           web_width: parseInt(document.getElementById("web_width").value || "1280"),
           web_height: parseInt(document.getElementById("web_height").value || "720"),
           policy_device: document.getElementById("policy_device").value || "gpu",
+          mujoco_gl: (document.getElementById("mujoco_gl").value || "") || null,
           webview: document.getElementById("webview").value === "true",
           zmq: document.getElementById("zmq").value === "true",
           use_referee: document.getElementById("use_referee").value === "true",

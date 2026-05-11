@@ -287,6 +287,7 @@ class RuntimeArgs:
     use_referee: bool
     policy_device: str
     real_time: bool
+    mujoco_gl: str | None
 
 
 def _clamp_team_count(v: int) -> int:
@@ -388,6 +389,13 @@ def parse_runtime_args(mujoco_dir: Path) -> RuntimeArgs:
         default="gpu",
         help="Policy inference device. If set to gpu but CUDA is unavailable, falls back to CPU.",
     )
+    parser.add_argument(
+        "--mujoco-gl",
+        type=str,
+        default=None,
+        choices=["egl", "glfw", "osmesa", "cgl"],
+        help="Override MUJOCO_GL backend for this run only.",
+    )
     ns = parser.parse_args()
     team_size = _clamp_team_count(ns.team_size)
     robot_cfg = build_robot_runtime_config(
@@ -418,6 +426,7 @@ def parse_runtime_args(mujoco_dir: Path) -> RuntimeArgs:
         use_referee=ns.use_referee,
         policy_device=ns.policy_device,
         real_time=ns.real_time,
+        mujoco_gl=ns.mujoco_gl,
     )
 
 
@@ -450,5 +459,4 @@ def parse_param_for_joint_names(joint_names: list[str], param: float | dict[str,
         if not matched:
             out[i] = 1e-7
     return out
-
 

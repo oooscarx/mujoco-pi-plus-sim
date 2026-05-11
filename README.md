@@ -6,8 +6,8 @@ This repository is an extracted standalone simulation pipeline for **MuJoCo + `p
 
 Included:
 - MuJoCo multi-robot simulation pipeline (`pi_plus`)
-- Simulation runner (`sim2sim_runner.py`)
-- Simulation manager API/UI (`sim_manager.py`, `app/sim_manager.py`)
+- Simulation runner (`mujoco_pi_plus_sim.runner`)
+- Simulation manager API/UI (`mujoco_pi_plus_sim.sim_manager`)
 - Web visualization and control pages (`web/`)
 
 Removed:
@@ -17,9 +17,7 @@ Removed:
 
 ## Repository Layout
 
-- `sim2sim_runner.py`: main simulation entry
-- `sim_manager.py`: manager entrypoint
-- `app/`: runtime config, simulator core, manager backend
+- `src/mujoco_pi_plus_sim/`: runtime config, simulator core, manager backend
 - `assets/`: `pi_plus` robot, environment, and `pi_plus` policy
 - `web/`: simulation webview + manager frontend
 - `tools/`: utility scripts
@@ -63,7 +61,7 @@ Manager pages:
 ## Optional: Run Manager with Uvicorn
 
 ```bash
-uv run uvicorn app.sim_manager:app --host 0.0.0.0 --port 8000
+uv run uvicorn mujoco_pi_plus_sim.sim_manager:app --host 0.0.0.0 --port 8000
 ```
 
 ## Common Runtime Options

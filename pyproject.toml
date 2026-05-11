@@ -29,12 +29,14 @@ dependencies = [
 ]
 
 [project.scripts]
-mos-sim-run = "app.runner:main"
-mos-sim-manager = "sim_manager:main"
+mos-sim-run = "mujoco_pi_plus_sim.runner:main"
+mos-sim-manager = "mujoco_pi_plus_sim.sim_manager:main"
 
 [tool.setuptools]
-packages = ["app"]
-py-modules = ["sim2sim_runner", "sim_manager"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.uv]
 package = true
