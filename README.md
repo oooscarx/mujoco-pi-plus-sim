@@ -1,15 +1,15 @@
-# MuJoCo PI+ Simulation (Standalone Repo)
+# MuJoCo PI+ Simulation
 
-This repository is an extracted standalone simulation pipeline for **MuJoCo + `pi_plus`** only.
+This repository contains a standalone MuJoCo simulation pipeline for `pi_plus`.
 
 ## Scope
 
 Included:
-- MuJoCo multi-robot simulation (`pi_plus`)
-- Runtime runner (`mujoco_pi_plus_sim.runner`)
-- Simulation manager API/UI (`mujoco_pi_plus_sim.sim_manager`)
-- Web visualization pages (`web/`)
-- External gait/control tools (`tools/`)
+- MuJoCo multi-robot simulation for `pi_plus`
+- Runtime runner `mujoco_pi_plus_sim.runner`
+- Simulation manager API and UI `mujoco_pi_plus_sim.sim_manager`
+- Web visualization pages in `web/`
+- Control tools in `tools/`
 
 Removed:
 - Isaac compatibility library and bridge dependencies
@@ -22,7 +22,7 @@ Removed:
 - `web/`: simulation webview + manager frontend
 - `tools/`: gait/control helper scripts
 
-## Environment Setup (uv)
+## Environment Setup
 
 ```bash
 cd ./mujoco-pi-plus-sim
@@ -35,17 +35,17 @@ Quick dependency check:
 uv run python -c "import mujoco, torch, zmq, flask, fastapi, uvicorn; print('ok')"
 ```
 
-## MuJoCo Interface (Input/Output First)
+## MuJoCo Input and Output
 
 Current control contract:
-- External control interface: **50Hz** (`dt=0.02`)
-- Internal physics integration: **2ms** step (`sim_dt=0.002`)
-- Internal substeps per external control tick: **10** (`control_decimation=10`)
-- Actuation input to MuJoCo: **joint-based** (`joint_actions` / `joint_targets`)
+- External control runs at 50Hz
+- Internal physics step is 2ms
+- MuJoCo runs 10 internal substeps for each external control tick
+- Actuation is joint-based through `joint_actions` or `joint_targets`
 
 `cmd_vel` is **not** a direct MuJoCo actuation input.
 
-### ZMQ Input (Controller -> MuJoCo)
+### ZMQ Input
 
 Request example:
 
@@ -59,11 +59,11 @@ Request example:
 ```
 
 Input fields:
-- `commands`: optional high-level per-robot command (used for sensor obs cmd terms)
+- `commands`: optional high-level command per robot, used to fill command-related observation terms
 - `joint_actions`: main joint-space actuation input
 - `joint_targets` / `joint_pos`: optional joint-position style inputs
 
-### ZMQ Output (MuJoCo -> Controller)
+### ZMQ Output
 
 Response includes:
 - `state`: world summary
@@ -71,7 +71,10 @@ Response includes:
   - `obs`
   - `joint_pos`, `joint_vel`, `joint_pos_target`
   - `base_pos`, `base_quat_wxyz`
-- `control_mode`, `sim_timestamp`, `step_latency`, `ack_timestamp`
+- `control_mode`
+- `sim_timestamp`
+- `step_latency`
+- `ack_timestamp`
 
 ## Run Simulation
 
@@ -85,7 +88,7 @@ On macOS:
 uv run mos-sim-run --control-mode joint_target --mujoco-gl cgl --robot-type pi_plus --team-size 1 --port 5555
 ```
 
-## Example: External Gait Validation Pipeline (No Mux)
+## Example: External Gait Validation Pipeline
 
 1. Start simulation:
 
@@ -93,13 +96,13 @@ uv run mos-sim-run --control-mode joint_target --mujoco-gl cgl --robot-type pi_p
 uv run mos-sim-run --control-mode joint_target --robot-type pi_plus --team-size 1 --port 5555
 ```
 
-2. Start runtime velocity publisher (optional but recommended):
+2. Start runtime velocity publisher:
 
 ```bash
 uv run python tools/cmd_vel_node.py --bind tcp://127.0.0.1:6003 --vx 1.0 --vy 0.0 --wz 0.0 --rate 20
 ```
 
-3. Start gait node (single writer to sim):
+3. Start gait node:
 
 ```bash
 uv run python tools/gait_node.py \
@@ -113,8 +116,8 @@ uv run python tools/gait_node.py \
 ```
 
 Notes:
-- `gait_node.py` directly communicates with MuJoCo ZMQ (no `control_mux.py`).
-- `--dt 0.02` keeps external policy/control at 50Hz.
+- `gait_node.py` writes directly to MuJoCo ZMQ. `control_mux.py` is not required.
+- `--dt 0.02` keeps external policy control at 50Hz.
 - MuJoCo internally applies 10 physics substeps per control message.
 
 ## Simulation Manager
@@ -132,11 +135,11 @@ Manager pages:
 
 This repository is extracted from the original `mos-sim` project and keeps MOS-Sim contributor attribution in source headers.
 
-## Contributors (from mos-sim commit history)
+## Contributors from mos-sim commit history
 
 Deduplicated by email:
 
-1. Shibo Xia (`sbxia`) `<xsb25@mails.tsinghua.edu.cn>`
-2. 罗绍殷 (`luo-sy24`) `<luo-sy24@mails.tsinghua.edu.cn>`
-3. wangju (aka `infrontlight`) `<j-wang24@mails.tsinghua.edu.cn>`, `<1051330335@qq.com>`
+1. Shibo Xia `sbxia` `<xsb25@mails.tsinghua.edu.cn>`
+2. 罗绍殷 `luo-sy24` `<luo-sy24@mails.tsinghua.edu.cn>`
+3. wangju / `infrontlight` `<j-wang24@mails.tsinghua.edu.cn>`, `<1051330335@qq.com>`
 4. wegg111 `<1047950878@qq.com>`
