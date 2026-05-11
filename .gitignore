@@ -1,10 +1,37 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.so
+
+# Virtual envs
 .venv/
+venv/
+
+# Environment files
 .env
+.env.*
+
+# uv
+.uv/
+uv-cache/
+
+# Packaging
+*.egg-info/
+dist/
+build/
+
+# Runtime artifacts
 .sim_manager_registry.json
 *.log
+
+# macOS
 .DS_Store
-*.egg-info/
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
