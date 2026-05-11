@@ -76,6 +76,62 @@ Response includes:
 - `step_latency`
 - `ack_timestamp`
 
+## Joint Name and ID Mapping
+
+`joint_actions[*].a` uses the policy joint order. Index table:
+
+| ID | Joint Name |
+|---:|---|
+| 0 | l_hip_pitch_joint |
+| 1 | l_shoulder_pitch_joint |
+| 2 | r_hip_pitch_joint |
+| 3 | r_shoulder_pitch_joint |
+| 4 | l_hip_roll_joint |
+| 5 | l_shoulder_roll_joint |
+| 6 | r_hip_roll_joint |
+| 7 | r_shoulder_roll_joint |
+| 8 | l_thigh_joint |
+| 9 | l_upper_arm_joint |
+| 10 | r_thigh_joint |
+| 11 | r_upper_arm_joint |
+| 12 | l_calf_joint |
+| 13 | l_elbow_joint |
+| 14 | r_calf_joint |
+| 15 | r_elbow_joint |
+| 16 | l_ankle_pitch_joint |
+| 17 | r_ankle_pitch_joint |
+| 18 | l_ankle_roll_joint |
+| 19 | r_ankle_roll_joint |
+
+MuJoCo internal joint vector order is different:
+
+| MuJoCo ID | Joint Name |
+|---:|---|
+| 0 | l_hip_pitch_joint |
+| 1 | l_hip_roll_joint |
+| 2 | l_thigh_joint |
+| 3 | l_calf_joint |
+| 4 | l_ankle_pitch_joint |
+| 5 | l_ankle_roll_joint |
+| 6 | l_shoulder_pitch_joint |
+| 7 | l_shoulder_roll_joint |
+| 8 | l_upper_arm_joint |
+| 9 | l_elbow_joint |
+| 10 | r_hip_pitch_joint |
+| 11 | r_hip_roll_joint |
+| 12 | r_thigh_joint |
+| 13 | r_calf_joint |
+| 14 | r_ankle_pitch_joint |
+| 15 | r_ankle_roll_joint |
+| 16 | r_shoulder_pitch_joint |
+| 17 | r_shoulder_roll_joint |
+| 18 | r_upper_arm_joint |
+| 19 | r_elbow_joint |
+
+Mapping arrays used in code:
+- policy -> MuJoCo: `[0, 4, 8, 12, 16, 18, 1, 5, 9, 13, 2, 6, 10, 14, 17, 19, 3, 7, 11, 15]`
+- MuJoCo -> policy: `[0, 6, 10, 16, 1, 7, 11, 17, 2, 8, 12, 18, 3, 9, 13, 19, 4, 14, 5, 15]`
+
 ## Run Simulation
 
 ```bash
